@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Neural network playground</title>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#12132a;--panel:#1b1d3b;--line:#2f3260;--tx:#e8e9ff;--mu:#9a9dcc;--a:#ff5ca8;--b:#35d6e8;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;color:var(--tx);font:14px/1.45 'Bricolage Grotesque',system-ui,sans-serif;background:radial-gradient(1100px 520px at 72% -8%,#2a2f6b,transparent),var(--bg);min-height:100vh}
+header{max-width:1500px;margin:0 auto;padding:22px 14px 4px}
+h1{margin:0;font-size:clamp(28px,4.4vw,46px);font-weight:800;letter-spacing:-.025em;line-height:1.05}
+header p{margin:6px 0 0;color:var(--mu);font-size:16px}
+main{display:grid;grid-template-columns:270px minmax(320px,1fr) 390px;gap:14px;padding:14px;max-width:1500px;margin:0 auto;align-items:start}
+.col{display:flex;flex-direction:column;gap:14px;min-width:0}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px}
+h2{margin:0 0 10px;font-size:15px;font-weight:600}
+.r{display:grid;grid-template-columns:1fr auto;gap:2px 8px;align-items:center;margin:8px 0;color:var(--mu)}
+.r input,.r select{grid-column:1/3}
+.r output{color:var(--tx);font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--a)}
+select{background:#14152e;color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font:inherit}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+button{font:inherit;color:var(--tx);background:#14152e;border:1px solid var(--line);border-radius:999px;padding:6px 13px;cursor:pointer}
+button:hover{border-color:var(--mu)}
+button:focus-visible,select:focus-visible,input:focus-visible,canvas:focus-visible{outline:2px solid var(--b);outline-offset:2px}
+button.on{background:var(--tx);color:var(--bg);border-color:var(--tx)}
+button.go{background:var(--a);border-color:var(--a);color:#26001a;font-weight:600}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.sp{flex:1}
+#st{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:12px;color:var(--mu)}
+#st b{display:block;color:var(--tx);font-size:19px;font-weight:600;font-variant-numeric:tabular-nums}
+canvas{display:block;width:100%;height:auto;border-radius:12px}
+#cv{margin-top:12px;background:#0d0e20}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:10px;color:var(--mu);font-size:13px;align-items:center}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;vertical-align:-1px}
+.legend label{cursor:pointer}
+#lay{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+.lc{display:flex;align-items:center;gap:4px}
+.lc button{padding:2px 9px}
+.lc b{min-width:16px;text-align:center}
+.hint{color:var(--mu);font-size:12.5px;margin:8px 0 0}
+@media(max-width:1150px){main{grid-template-columns:1fr 1fr}.col:nth-child(2){order:-1;grid-column:1/3}}
+@media(max-width:700px){main{grid-template-columns:1fr}.col:nth-child(2){grid-column:1}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Neural network playground</h1>
+  <p>Pick a shape, build a network, and watch it learn where the boundary goes.</p>
+</header>
+<main>
+  <section class="col" id="left"></section>
+  <section class="col">
+    <div class="panel">
+      <div class="bar">
+        <button class="go" id="play">Train</button>
+        <button id="stp">Step</button>
+        <button id="rst">Reset</button>
+        <span class="sp"></span>
+        <button id="img">Save image</button>
+        <button id="ex">Export weights</button>
+      </div>
+      <div id="st"></div>
+      <canvas id="cv" width="640" height="640" tabindex="0" aria-label="Decision boundary. Colour shows what the network predicts at each point."></canvas>
+      <div class="legend">
+        <span><i style="background:#ff5ca8"></i>Class A</span>
+        <span><i style="background:#35d6e8"></i>Class B</span>
+        <span>Filled dots train, rings test</span>
+        <label><input type="checkbox" id="tst" checked> Show test points</label>
+      </div>
+      <p class="hint">Shortcuts: space to train or pause, S to step, R to reset. Choose “Add A” or “Add B” under Data, then click the plot to place your own points.</p>
+    </div>
+  </section>
+  <section class="col">
+    <div class="panel">
+      <h2>Network</h2>
+      <div id="lay"></div>
+      <canvas id="nc" width="760" height="440"></canvas>
+      <p class="hint">Line colour is the sign of a weight (pink positive, cyan negative) and thickness is its size.</p>
+    </div>
+    <div class="panel">
+      <h2>Loss over time</h2>
+      <canvas id="lc" width="760" height="300"></canvas>
+      <div class="legend"><span><i style="background:#e8e9ff"></i>Training</span><span><i style="background:#ffd166"></i>Test</span></div>
+    </div>
+  </section>
+</main>
+<script>
+const $=s=>document.querySelector(s),PINK='#ff5ca8',CY='#35d6e8';
+const S={data:'circle',noise:.15,split:.7,n:300,paint:0,feats:[1,1,0,0,0,0,0],hidden:[5,3],lr:.03,act:'tanh',opt:'adam',l2:0,batch:16,speed:6,run:false,showTest:true};
+const FN=[['x',(x,y)=>x],['y',(x,y)=>y],['x²',(x,y)=>x*x],['y²',(x,y)=>y*y],['xy',(x,y)=>x*y],['sin x',(x,y)=>Math.sin(3*x)],['sin y',(x,y)=>Math.sin(3*y)]];
+const ACT={tanh:[Math.tanh,a=>1-a*a],relu:[z=>z>0?z:0,a=>a>0?1:0],leaky:[z=>z>0?z:.05*z,a=>a>0?1:.05],sigmoid:[z=>1/(1+Math.exp(-z)),a=>a*(1-a)],linear:[z=>z,a=>1]};
+const NAMES={circle:'Circle',xor:'XOR',spiral:'Spiral',gauss:'Blobs',moons:'Moons',blank:'Blank'};
+const g=()=>Math.sqrt(-2*Math.log(1-Math.random()))*Math.cos(6.2832*Math.random());
+const cl=v=>Math.max(-1,Math.min(1,v)),R=r=>Math.random()*r;
+const GEN={
+ circle:()=>{const c=Math.random()<.5,r=c?R(.4):.65+R(.3),t=R(6.2832);return[r*Math.cos(t),r*Math.sin(t),c?1:0]},
+ xor:()=>{const x=R(2)-1,y=R(2)-1;return[x,y,x*y>0?1:0]},
+ gauss:()=>{const c=Math.random()<.5?1:0,s=c?.45:-.45;return[s+g()*.2,s+g()*.2,c]},
+ spiral:()=>{const c=Math.random()<.5?1:0,r=.05+R(.9),t=r*4.5+c*Math.PI;return[r*Math.cos(t),r*Math.sin(t),c]},
+ moons:()=>{const c=Math.random()<.5?1:0,t=R(Math.PI);return c?[.7*Math.cos(t)-.35,.7*Math.sin(t)-.25,1]:[.35-.7*Math.cos(t),.25-.7*Math.sin(t),0]}
+};
+let data={train:[],test:[]},net,hist=[[],[]],dirty=1;
+const feat=(x,y)=>{const r=[];FN.forEach((f,i)=>S.feats[i]&&r.push(f[1](x,y)));return r};
+
+/* ---------- data ---------- */
+function prep(){[...data.train,...data.test].forEach(p=>p.f=feat(p.x,p.y));dirty=1}
+function split(pts){const k=Math.round(pts.length*S.split);data={train:pts.slice(0,k),test:pts.slice(k)};prep()}
+function gen(){const pts=[];if(S.data!='blank')for(let i=0;i<S.n;i++){const p=GEN[S.data]();pts.push({x:cl(p[0]+g()*S.noise*.5),y:cl(p[1]+g()*S.noise*.5),c:p[2]})}split(pts)}
+
+/* ---------- network ---------- */
+function build(){
+  const sz=[S.feats.reduce((a,b)=>a+b,0),...S.hidden,1];net={sz,L:[],t:0};
+  for(let l=1;l<sz.length;l++){const i=sz[l-1],o=sz[l],n=i*o,f=()=>new Float64Array(n),h=()=>new Float64Array(o),W=f(),sc=Math.sqrt(2/i)*.7;
+    for(let k=0;k<n;k++)W[k]=g()*sc;
+    net.L.push({i,o,W,b:h(),gW:f(),gb:h(),mW:f(),vW:f(),mb:h(),vb:h()})}
+  hist=[[],[]];dirty=1;
+}
+function fwd(inp,keep){
+  let a=inp;const as=keep?[a]:null,fa=ACT[S.act][0];
+  for(let l=0;l<net.L.length;l++){const L=net.L[l],last=l==net.L.length-1,o=new Float64Array(L.o);
+    for(let j=0;j<L.o;j++){let z=L.b[j];const off=j*L.i;for(let i=0;i<L.i;i++)z+=L.W[off+i]*a[i];o[j]=last?1/(1+Math.exp(-z)):fa(z)}
+    a=o;if(keep)as.push(a)}
+  return keep?as:a[0];
+}
+function upd(w,gr,m,v,B,reg,t){
+  for(let k=0;k<w.length;k++){const d=gr[k]/B+(reg?S.l2*w[k]:0);
+    if(S.opt=='sgd')w[k]-=S.lr*d;
+    else if(S.opt=='mom'){m[k]=.9*m[k]+d;w[k]-=S.lr*m[k]}
+    else{m[k]=.9*m[k]+.1*d;v[k]=.999*v[k]+.001*d*d;w[k]-=S.lr*(m[k]/(1-.9**t))/(Math.sqrt(v[k]/(1-.999**t))+1e-8)}}
+}
+function step(){
+  const tr=data.train;if(!tr.length)return;
+  net.L.forEach(L=>{L.gW.fill(0);L.gb.fill(0)});
+  const B=Math.min(S.batch,tr.length),da=ACT[S.act][1];
+  for(let k=0;k<B;k++){
+    const p=tr[(Math.random()*tr.length)|0],as=fwd(p.f,1);let d=[as[as.length-1][0]-p.c];
+    for(let l=net.L.length-1;l>=0;l--){
+      const L=net.L[l],a0=as[l],nd=l?new Float64Array(L.i):null;
+      for(let j=0;j<L.o;j++){const dj=d[j],off=j*L.i;L.gb[j]+=dj;
+        for(let i=0;i<L.i;i++){L.gW[off+i]+=dj*a0[i];if(nd)nd[i]+=dj*L.W[off+i]}}
+      if(nd){for(let i=0;i<L.i;i++)nd[i]*=da(a0[i]);d=nd}
+    }
+  }
+  net.t++;
+  net.L.forEach(L=>{upd(L.W,L.gW,L.mW,L.vW,B,1,net.t);upd(L.b,L.gb,L.mb,L.vb,B,0,net.t)});
+}
+const loss=ps=>{if(!ps.length)return 0;let s=0;for(const p of ps){const o=Math.min(1-1e-7,Math.max(1e-7,fwd(p.f)));s-=p.c?Math.log(o):Math.log(1-o)}return s/ps.length};
+const acc=ps=>ps.length?ps.filter(p=>(fwd(p.f)>.5)==p.c).length/ps.length:0;
+function rec(){hist[0].push(loss(data.train));hist[1].push(loss(data.test));hist.forEach(h=>h.length>400&&h.shift())}
+function reset(){build();rec()}
+
+/* ---------- drawing ---------- */
+const cv=$('#cv'),cx=cv.getContext('2d'),nc=$('#nc'),nx=nc.getContext('2d'),lc=$('#lc'),lx=lc.getContext('2d');
+const GR=56,hc=document.createElement('canvas');hc.width=hc.height=GR;
+const hx=hc.getContext('2d'),im=hx.createImageData(GR,GR);
+function heat(){
+  const mid=[24,26,56],A=[255,92,168],B=[53,214,232];
+  for(let j=0;j<GR;j++)for(let i=0;i<GR;i++){
+    const v=fwd(feat((i+.5)/GR*2-1,1-(j+.5)/GR*2)),t=Math.min(1,Math.abs(2*v-1)*.95),c=v>.5?A:B,k=(j*GR+i)*4;
+    for(let q=0;q<3;q++)im.data[k+q]=mid[q]+(c[q]-mid[q])*t;
+    im.data[k+3]=255}
+  hx.putImageData(im,0,0);
+}
+function drawMain(){
+  const W=cv.width,c=cx;c.imageSmoothingEnabled=true;c.imageSmoothingQuality='high';c.drawImage(hc,0,0,W,W);
+  c.strokeStyle='rgba(255,255,255,.08)';c.lineWidth=1;c.beginPath();c.moveTo(W/2,0);c.lineTo(W/2,W);c.moveTo(0,W/2);c.lineTo(W,W/2);c.stroke();
+  const pt=(p,test)=>{const X=(p.x+1)/2*W,Y=(1-p.y)/2*W;c.beginPath();c.arc(X,Y,test?7:5.5,0,7);
+    if(test){c.lineWidth=4.5;c.strokeStyle='#fff';c.stroke();c.lineWidth=2.5;c.strokeStyle=p.c?PINK:CY;c.stroke()}
+    else{c.fillStyle=p.c?PINK:CY;c.fill();c.lineWidth=2;c.strokeStyle='#12132a';c.stroke()}};
+  data.train.forEach(p=>pt(p,0));if(S.showTest)data.test.forEach(p=>pt(p,1));
+}
+function drawNet(){
+  const W=nc.width,H=nc.height,c=nx,sz=net.sz,names=FN.filter((f,i)=>S.feats[i]).map(f=>f[0]);
+  c.clearRect(0,0,W,H);
+  const px=l=>80+l*(W-140)/(sz.length-1),py=(l,j)=>H/2+(j-(sz[l]-1)/2)*Math.min(46,(H-40)/sz[l]);
+  for(let l=1;l<sz.length;l++){const L=net.L[l-1];
+    for(let j=0;j<L.o;j++)for(let i=0;i<L.i;i++){const w=L.W[j*L.i+i];
+      c.strokeStyle=w>0?PINK:CY;c.globalAlpha=Math.min(.9,.12+Math.abs(w)*.5);c.lineWidth=Math.min(6,.4+Math.abs(w)*1.7);
+      c.beginPath();c.moveTo(px(l-1),py(l-1,i));c.lineTo(px(l),py(l,j));c.stroke()}}
+  c.globalAlpha=1;c.font='600 21px Bricolage Grotesque,system-ui,sans-serif';c.textAlign='right';
+  for(let l=0;l<sz.length;l++)for(let j=0;j<sz[l];j++){
+    const b=l?net.L[l-1].b[j]:0;c.beginPath();c.arc(px(l),py(l,j),13,0,7);c.fillStyle='#1b1d3b';c.fill();
+    c.lineWidth=4;c.strokeStyle=l?(b>0?PINK:CY):'#9a9dcc';c.globalAlpha=l?Math.min(1,.4+Math.abs(b)):1;c.stroke();c.globalAlpha=1;
+    if(!l){c.fillStyle='#e8e9ff';c.fillText(names[j],px(0)-22,py(0,j)+7)}}
+}
+function drawLoss(){
+  const W=lc.width,H=lc.height,c=lx;c.clearRect(0,0,W,H);
+  const all=[...hist[0],...hist[1]];if(all.length<2)return;
+  const mx=Math.max(.3,...all),n=hist[0].length,y=v=>H-10-v/mx*(H-24);
+  c.strokeStyle='rgba(255,255,255,.1)';c.fillStyle='#9a9dcc';c.font='18px Bricolage Grotesque,system-ui,sans-serif';c.lineWidth=1;
+  for(let i=0;i<=3;i++){const v=mx*i/3;c.beginPath();c.moveTo(0,y(v));c.lineTo(W,y(v));c.stroke();c.fillText(v.toFixed(2),6,y(v)-4)}
+  [[hist[0],'#e8e9ff'],[hist[1],'#ffd166']].forEach(([h,col])=>{c.strokeStyle=col;c.lineWidth=3;c.lineJoin='round';c.beginPath();
+    h.forEach((v,i)=>i?c.lineTo(i/(n-1)*W,y(v)):c.moveTo(0,y(v)));c.stroke()});
+}
+function stats(){
+  const f=a=>a.length?a[a.length-1].toFixed(3):'–',p=v=>(v*100).toFixed(0)+'%';
+  $('#st').innerHTML=`<span>Step<b>${net.t}</b></span><span>Train loss<b>${f(hist[0])}</b></span><span>Test loss<b>${f(hist[1])}</b></span><span>Train accuracy<b>${p(acc(data.train))}</b></span><span>Test accuracy<b>${p(acc(data.test))}</b></span>`;
+}
+function frame(){
+  if(S.run){for(let i=0;i<S.speed;i++)step();rec();dirty=1}
+  if(dirty){dirty=0;heat();drawMain();drawNet();drawLoss();stats()}
+  requestAnimationFrame(frame);
+}
+
+/* ---------- interface ---------- */
+const sl=(k,lab,mn,mx,st)=>`<label class="r">${lab}<output id="o_${k}"></output><input type="range" id="s_${k}" min="${mn}" max="${mx}" step="${st}" value="${S[k]}"></label>`;
+const sel=(k,lab,o)=>`<label class="r">${lab}<select id="e_${k}">${o.map(x=>`<option value="${x[0]}"${x[0]==S[k]?' selected':''}>${x[1]}</option>`).join('')}</select></label>`;
+$('#left').innerHTML=`
+<div class="panel"><h2>Data</h2><div class="chips" id="ds"></div>
+ ${sl('noise','Noise',0,.5,.01)}${sl('split','Training share',.1,.9,.05)}${sl('n','Samples',0,600,10)}
+ <div class="chips" id="pt"></div>
+ <p class="hint">Blank starts empty so you can draw your own data.</p></div>
+<div class="panel"><h2>Inputs</h2><div class="chips" id="ft"></div>
+ <p class="hint">Extra inputs help a small network bend its boundary. Try x² and y² on the circle.</p></div>
+<div class="panel"><h2>Training</h2>
+ ${sel('opt','Optimiser',[['adam','Adam'],['mom','Momentum'],['sgd','Plain SGD']])}
+ ${sel('act','Hidden activation',[['tanh','Tanh'],['relu','ReLU'],['leaky','Leaky ReLU'],['sigmoid','Sigmoid'],['linear','Linear']])}
+ ${sel('lr','Learning rate',[.0003,.001,.003,.01,.03,.1,.3,1].map(v=>[v,v]))}
+ ${sel('l2','L2 regularisation',[0,.0001,.001,.003,.01,.03].map(v=>[v,v||'None']))}
+ ${sl('batch','Batch size',1,64,1)}${sl('speed','Steps per frame',1,40,1)}</div>`;
+
+const chips=(el,items,on,fn)=>{el.innerHTML=items.map((t,i)=>`<button data-i="${i}" class="${on(i)?'on':''}">${t}</button>`).join('');
+  el.onclick=e=>{const b=e.target.closest('button');if(b){fn(+b.dataset.i);chips(el,items,on,fn)}}};
+const dk=Object.keys(NAMES);
+chips($('#ds'),dk.map(k=>NAMES[k]),i=>S.data==dk[i],i=>{S.data=dk[i];gen()});
+chips($('#pt'),['Just look','Add A','Add B'],i=>S.paint==i,i=>{S.paint=i;cv.style.cursor=i?'crosshair':'default'});
+chips($('#ft'),FN.map(f=>f[0]),i=>S.feats[i],i=>{S.feats[i]^=1;if(!S.feats.some(Boolean))S.feats[i]=1;prep();reset();lay()});
+
+document.querySelectorAll('input[type=range]').forEach(el=>{
+  const k=el.id.slice(2),out=$('#o_'+k),f=()=>{S[k]=+el.value;out.textContent=k=='split'?Math.round(S[k]*100)+'%':S[k]};
+  f();el.oninput=()=>{f();k=='split'?split([...data.train,...data.test]):['noise','n'].includes(k)?gen():dirty=1}});
+document.querySelectorAll('select').forEach(el=>{
+  const k=el.id.slice(2);el.onchange=()=>{S[k]=isNaN(+el.value)?el.value:+el.value;k=='act'?reset():dirty=1}});
+
+function lay(){
+  $('#lay').innerHTML=S.hidden.map((n,i)=>`<div class="lc"><button data-i="${i}" data-d="1" aria-label="More neurons">+</button><b>${n}</b><button data-i="${i}" data-d="-1" aria-label="Fewer neurons">−</button></div>`).join('')
+   +`<div class="lc"><button id="la">Add layer</button><button id="lr">Remove layer</button></div>`;
+}
+$('#lay').onclick=e=>{const b=e.target.closest('button');if(!b)return;
+  if(b.id=='la'&&S.hidden.length<6)S.hidden.push(4);
+  else if(b.id=='lr')S.hidden.pop();
+  else if(b.dataset.d){const i=+b.dataset.i;S.hidden[i]=Math.max(1,Math.min(8,S.hidden[i]+ +b.dataset.d))}
+  reset();lay()};
+
+const toggle=()=>{S.run=!S.run;$('#play').textContent=S.run?'Pause':'Train';$('#play').classList.toggle('go',!S.run)};
+$('#play').onclick=toggle;
+$('#stp').onclick=()=>{step();rec();dirty=1};
+$('#rst').onclick=reset;
+$('#tst').onchange=e=>{S.showTest=e.target.checked;dirty=1};
+cv.onclick=e=>{if(!S.paint)return;const r=cv.getBoundingClientRect(),x=(e.clientX-r.left)/r.width*2-1,y=1-(e.clientY-r.top)/r.height*2,p={x,y,c:S.paint==1?1:0};p.f=feat(x,y);data.train.push(p);dirty=1};
+const dl=(href,name)=>{const a=document.createElement('a');a.href=href;a.download=name;a.click()};
+$('#img').onclick=()=>dl(cv.toDataURL('image/png'),'decision-boundary.png');
+$('#ex').onclick=()=>{const cfg={...S};delete cfg.run;
+  dl(URL.createObjectURL(new Blob([JSON.stringify({config:cfg,sizes:net.sz,layers:net.L.map(L=>({W:[...L.W],b:[...L.b]}))})],{type:'application/json'})),'network.json')};
+addEventListener('keydown',e=>{if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)||e.target.tagName=='BUTTON'&&e.key==' ')return;
+  if(e.key==' '){e.preventDefault();toggle()}else if(e.key=='s')$('#stp').click();else if(e.key=='r')reset()});
+
+gen();build();rec();lay();frame();
+</script>
+</body>
+</html>
